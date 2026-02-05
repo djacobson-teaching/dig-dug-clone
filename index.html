@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Dig Dug</title>
 
-  <!-- Tailwind CDN -->
+  <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- Pixel Art Font -->
+  <!-- Pixel Font -->
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
 
@@ -20,14 +20,9 @@
       box-sizing: border-box;
     }
 
-    @keyframes inflate {
-      0%, 100% { transform: scale(1); }
-      50% { transform: scale(1.3); }
-    }
-
     @keyframes pulse-glow {
       0%, 100% { filter: brightness(1); }
-      50% { filter: brightness(1.3); }
+      50% { filter: brightness(1.2); }
     }
   </style>
 </head>
@@ -45,7 +40,7 @@
     <div class="text-cyan-400 text-sm space-y-2">
       <p>🎮 Arrow Keys or WASD to Move</p>
       <p>⚡ Space to Pump Enemies</p>
-      <p>💀 Drop Rocks to Crush Enemies!</p>
+      <p>💀 Drop Rocks to Crush Enemies</p>
     </div>
 
     <button id="start-btn"
@@ -72,15 +67,15 @@
     <!-- MOBILE CONTROLS -->
     <div class="md:hidden mt-4 grid grid-cols-3 gap-2 w-48">
       <div></div>
-      <button class="mobile-btn bg-gray-800 text-white p-4 rounded-lg text-2xl" data-dir="up">⬆️</button>
+      <button class="mobile-btn bg-gray-800 text-white p-4 rounded-lg text-2xl active:bg-gray-600" data-dir="up">⬆️</button>
       <div></div>
 
-      <button class="mobile-btn bg-gray-800 text-white p-4 rounded-lg text-2xl" data-dir="left">⬅️</button>
-      <button class="mobile-btn bg-red-600 text-white p-4 rounded-lg text-xl" data-action="pump">💨</button>
-      <button class="mobile-btn bg-gray-800 text-white p-4 rounded-lg text-2xl" data-dir="right">➡️</button>
+      <button class="mobile-btn bg-gray-800 text-white p-4 rounded-lg text-2xl active:bg-gray-600" data-dir="left">⬅️</button>
+      <button class="mobile-btn bg-red-600 text-white p-4 rounded-lg text-xl active:bg-red-400" data-action="pump">💨</button>
+      <button class="mobile-btn bg-gray-800 text-white p-4 rounded-lg text-2xl active:bg-gray-600" data-dir="right">➡️</button>
 
       <div></div>
-      <button class="mobile-btn bg-gray-800 text-white p-4 rounded-lg text-2xl" data-dir="down">⬇️</button>
+      <button class="mobile-btn bg-gray-800 text-white p-4 rounded-lg text-2xl active:bg-gray-600" data-dir="down">⬇️</button>
       <div></div>
     </div>
 
@@ -100,30 +95,33 @@
 
 </div>
 
-<script>
-/* --- ALL GAME LOGIC BELOW (works on GitHub Pages) --- */
 
-// Canvas constants
+<!-- FULL GAME LOGIC -->
+<script>
+// Canvas + Grid
 const TILE = 20;
 const GRID_W = 15;
 const GRID_H = 15;
+
 const canvas = document.getElementById("game-canvas");
 canvas.width = GRID_W * TILE;
 canvas.height = GRID_H * TILE;
 const ctx = canvas.getContext("2d");
 
-// HUD
-let score = 0, lives = 3, level = 1;
-document.getElementById("score").textContent = score;
+// HUD Vars
+let score = 0;
+let lives = 3;
+let level = 1;
 
-// Game state vars
+// Game State
 let gameState = "title";
 let grid = [];
 let player, enemies = [], rocks = [];
 let pump = null;
-let lastTime = 0;
 let keys = {};
+let lastTime = 0;
 
+// Tile Types
 const TILE_EMPTY = 0;
 const TILE_DIRT = 1;
 const TILE_TUNNEL = 2;
@@ -142,7 +140,7 @@ const COLORS = {
   pump: "#00BFFF"
 };
 
-// Init grid
+// Initialize Grid
 function initGrid() {
   grid = [];
   for (let y=0; y<GRID_H; y++) {
@@ -154,7 +152,8 @@ function initGrid() {
   for (let x=5; x<10; x++) grid[1][x] = TILE_TUNNEL;
 }
 
-/* ----------------------------- PLAYER CLASS ----------------------------- */
+
+// ---------------- PLAYER ----------------
 class Player {
   constructor(x,y) {
     this.x=x; this.y=y;
@@ -167,7 +166,7 @@ class Player {
   }
 
   move(dir) {
-    if (this.moving || pump) return;
+    if (this.moving || (pump && pump.active)) return;
 
     let nx = Math.round(this.targetX);
     let ny = Math.round(this.targetY);
@@ -186,6 +185,7 @@ class Player {
       if (grid[ny][nx] === TILE_DIRT) {
         grid[ny][nx] = TILE_TUNNEL;
         score += 10;
+        document.getElementById("score").textContent = score;
       }
     }
   }
@@ -211,10 +211,9 @@ class Player {
   }
 
   draw() {
-    const px=this.x*TILE, py=this.y*TILE;
-
-    // Blink if invincible
     if (this.invincible && Math.floor(Date.now()/100)%2===0) return;
+
+    const px=this.x*TILE, py=this.y*TILE;
 
     ctx.fillStyle = COLORS.player;
     ctx.beginPath();
@@ -227,7 +226,8 @@ class Player {
   }
 }
 
-/* ------------------------------ ENEMY CLASS ------------------------------ */
+
+// ---------------- ENEMY ----------------
 class Enemy {
   constructor(x,y,type) {
     this.x=x; this.y=y;
@@ -235,7 +235,7 @@ class Enemy {
     this.targetX=x; this.targetY=y;
     this.speed = 0.05 + (level*0.005);
     this.alive = true;
-    this.inflate=0;
+    this.inflate = 0; // Track how “pumped” they are
   }
 
   update(dt) {
@@ -256,7 +256,11 @@ class Enemy {
       if (d==="left") nx--;
       if (d==="right") nx++;
 
-      if (nx>=0&&nx<GRID_W&&ny>=0&&ny<GRID_H && grid[ny][nx]!==TILE_DIRT) {
+      if (
+        nx>=0 && nx<GRID_W &&
+        ny>=0 && ny<GRID_H &&
+        grid[ny][nx]!==TILE_DIRT
+      ) {
         this.targetX=nx;
         this.targetY=ny;
       }
@@ -267,15 +271,25 @@ class Enemy {
     if (!this.alive) return;
 
     const px=this.x*TILE, py=this.y*TILE;
-    ctx.fillStyle = this.type==="pooka" ? COLORS.pooka : COLORS.fygar;
 
+    // Inflate animation
+    let scale = 1 + this.inflate*0.2;
+
+    ctx.save();
+    ctx.translate(px+TILE/2, py+TILE/2);
+    ctx.scale(scale, scale);
+
+    ctx.fillStyle = this.type==="pooka" ? COLORS.pooka : COLORS.fygar;
     ctx.beginPath();
-    ctx.arc(px+TILE/2, py+TILE/2, TILE/2-2, 0, Math.PI*2);
+    ctx.arc(0, 0, TILE/2-2, 0, Math.PI*2);
     ctx.fill();
+
+    ctx.restore();
   }
 }
 
-/* ------------------------------ ROCK CLASS ------------------------------ */
+
+// ---------------- ROCK ----------------
 class Rock {
   constructor(x,y) {
     this.x=x; this.y=y;
@@ -288,12 +302,13 @@ class Rock {
     if (this.destroyed) return;
 
     const below = Math.floor(this.y)+1;
+
     if (!this.falling) {
       if (below<GRID_H && grid[below][Math.floor(this.x)]===TILE_TUNNEL) {
         this.falling=true;
       }
     } else {
-      this.speed += 0.01;
+      this.speed += 0.015;
       this.y += this.speed;
 
       if (Math.floor(this.y)>=GRID_H-1) {
@@ -314,29 +329,68 @@ class Rock {
   }
 }
 
-/* -------------------------- PUMP ATTACK CLASS -------------------------- */
+
+// ---------------- FIXED PUMP ----------------
 class Pump {
   constructor(dir) {
     this.dir = dir;
-    this.length=0;
-    this.active=true;
+    this.length = 0;
+    this.maxLength = 3;
+    this.active = true;
   }
 
   update(dt) {
     if (!this.active) return;
-    this.length += 0.15;
-    if (this.length>3) this.active=false;
+
+    this.length += 0.20;
+
+    // Collision check
+    for (const enemy of enemies) {
+      if (!enemy.alive) continue;
+
+      let checkX = player.x;
+      let checkY = player.y;
+
+      for (let i = 0; i < this.length; i++) {
+        if (this.dir === "up")    checkY = player.y - i - 1;
+        if (this.dir === "down")  checkY = player.y + i + 1;
+        if (this.dir === "left")  checkX = player.x - i - 1;
+        if (this.dir === "right") checkX = player.x + i + 1;
+
+        if (
+          Math.abs(enemy.x - checkX) < 0.6 &&
+          Math.abs(enemy.y - checkY) < 0.6
+        ) {
+          enemy.inflate++;
+
+          if (enemy.inflate >= 4) {
+            enemy.alive = false;
+            enemy.inflate = 0;
+            score += enemy.type==="fygar" ? 400 : 200;
+            document.getElementById("score").textContent = score;
+          }
+
+          this.active = false;
+          return;
+        }
+      }
+    }
+
+    if (this.length >= this.maxLength) this.active = false;
   }
 
   draw() {
+    if (!this.active) return;
+
     const px = player.x*TILE + TILE/2;
     const py = player.y*TILE + TILE/2;
-
     let ex=px, ey=py;
-    if (this.dir==="up") ey-=this.length*TILE;
-    if (this.dir==="down") ey+=this.length*TILE;
-    if (this.dir==="left") ex-=this.length*TILE;
-    if (this.dir==="right") ex+=this.length*TILE;
+    const len = this.length*TILE;
+
+    if (this.dir==="up") ey-=len;
+    if (this.dir==="down") ey+=len;
+    if (this.dir==="left") ex-=len;
+    if (this.dir==="right") ex+=len;
 
     ctx.strokeStyle = COLORS.pump;
     ctx.lineWidth = 3;
@@ -344,32 +398,36 @@ class Pump {
     ctx.moveTo(px,py);
     ctx.lineTo(ex,ey);
     ctx.stroke();
+
+    ctx.fillStyle="#FF69B4";
+    ctx.beginPath();
+    ctx.arc(ex,ey,4,0,Math.PI*2);
+    ctx.fill();
   }
 }
 
-/* ------------------------------ RENDER BG ------------------------------ */
+
+// ---------------- DRAW BG ----------------
 function drawBackground() {
   ctx.fillStyle = COLORS.sky;
   ctx.fillRect(0,0,GRID_W*TILE,TILE);
 
   for (let y=1; y<GRID_H; y++) {
-    const colorIndex = Math.min(Math.floor((y-1)/4), COLORS.dirt.length-1);
+    const clr = COLORS.dirt[Math.min(Math.floor((y-1)/4), COLORS.dirt.length-1)];
     for (let x=0; x<GRID_W; x++) {
-      if (grid[y][x]===TILE_DIRT) {
-        ctx.fillStyle = COLORS.dirt[colorIndex];
-      } else {
-        ctx.fillStyle = COLORS.tunnel;
-      }
+      ctx.fillStyle = (grid[y][x] === TILE_TUNNEL) ? COLORS.tunnel : clr;
       ctx.fillRect(x*TILE, y*TILE, TILE, TILE);
     }
   }
 }
 
-/* ------------------------------ GAME INIT ------------------------------ */
+
+// ---------------- GAME INIT ----------------
 function initGame() {
   initGrid();
   player = new Player(7,1);
   enemies = [];
+  rocks = [];
 
   const count = 2 + level;
   for (let i=0; i<count; i++) {
@@ -380,7 +438,6 @@ function initGame() {
     grid[ey][ex] = TILE_TUNNEL;
   }
 
-  rocks=[];
   for (let i=0; i<2; i++) {
     let rx = Math.floor(Math.random()*(GRID_W-2));
     let ry = 2+Math.floor(Math.random()*3);
@@ -391,47 +448,49 @@ function initGame() {
   pump=null;
 }
 
-/* ------------------------------ LEVEL CHECK ------------------------------ */
+
+// ---------------- COLLISIONS ----------------
+function playerDeath() {
+  lives--;
+  document.getElementById("lives").textContent = "❤️".repeat(lives);
+
+  if (lives <= 0) {
+    gameState="gameover";
+    document.getElementById("final-score").textContent=score;
+    document.getElementById("final-level").textContent=level;
+    showScreen("gameover");
+    return;
+  }
+
+  player.invincible=true;
+  player.invTimer=1200;
+  player.x=7; player.y=1;
+  player.targetX=7; player.targetY=1;
+}
+
 function checkCollisions() {
   if (player.invincible) return;
 
-  for (let e of enemies) {
-    if (!e.alive) return;
-    const dx=Math.abs(player.x-e.x);
-    const dy=Math.abs(player.y-e.y);
-    if (dx<0.6 && dy<0.6) {
+  for (const e of enemies) {
+    if (!e.alive) continue;
+    if (Math.abs(player.x-e.x)<0.6 && Math.abs(player.y-e.y)<0.6) {
       playerDeath();
       return;
     }
   }
 }
 
-function playerDeath() {
-  lives--;
-  document.getElementById("lives").textContent="❤️".repeat(lives);
-  if (lives <= 0) {
-    gameState="gameover";
-    document.getElementById("final-score").textContent=score;
-    document.getElementById("final-level").textContent=level;
-    showScreen("gameover");
-  } else {
-    player.invincible=true;
-    player.invTimer=1500;
-    player.x=7; player.y=1;
-    player.targetX=7; player.targetY=1;
-  }
-}
-
 function checkLevelComplete() {
-  if (enemies.every(e => !e.alive)) {
+  if (enemies.every(e=>!e.alive)) {
     level++;
-    score += level*1000;
+    score += level*500;
     document.getElementById("score").textContent=score;
     initGame();
   }
 }
 
-/* ------------------------------ SCREEN CONTROL ------------------------------ */
+
+// ---------------- SCREEN CONTROL ----------------
 function showScreen(id) {
   ["title","game","gameover"].forEach(s=>{
     document.getElementById(`${s}-screen`).classList.add("hidden");
@@ -439,7 +498,8 @@ function showScreen(id) {
   document.getElementById(`${id}-screen`).classList.remove("hidden");
 }
 
-/* ------------------------------ GAME LOOP ------------------------------ */
+
+// ---------------- GAME LOOP ----------------
 function loop(ts) {
   const dt = ts - lastTime;
   lastTime = ts;
@@ -470,18 +530,21 @@ function loop(ts) {
 }
 requestAnimationFrame(loop);
 
-/* ------------------------------ INPUT ------------------------------ */
+
+// ---------------- INPUT ----------------
 document.addEventListener("keydown", e=>{
   keys[e.code]=true;
 
   if (e.code==="Space") {
     e.preventDefault();
+
     if (gameState==="title") {
       gameState="playing";
       score=0; lives=3; level=1;
       initGame();
       showScreen("game");
-    } else if (gameState==="playing" && !pump) {
+    }
+    else if (gameState==="playing" && !pump) {
       pump = new Pump(player.direction);
       setTimeout(()=>pump=null,300);
     }
@@ -492,7 +555,8 @@ document.addEventListener("keyup", e=>{
   keys[e.code]=false;
 });
 
-/* ------------------------------ BUTTONS ------------------------------ */
+
+// ---------------- BUTTONS ----------------
 document.getElementById("start-btn").onclick = ()=>{
   gameState="playing";
   score=0; lives=3; level=1;
@@ -507,16 +571,19 @@ document.getElementById("restart-btn").onclick = ()=>{
   showScreen("game");
 };
 
-/* ------------------------------ MOBILE ------------------------------ */
+
+// ---------------- MOBILE ----------------
 document.querySelectorAll(".mobile-btn").forEach(btn=>{
   btn.addEventListener("touchstart", e=>{
     const dir = btn.dataset.dir;
     const action = btn.dataset.action;
+
     e.preventDefault();
 
     if (dir) {
       keys["Arrow"+dir.charAt(0).toUpperCase()+dir.slice(1)] = true;
     }
+
     if (action==="pump" && !pump) {
       pump = new Pump(player.direction);
       setTimeout(()=>pump=null,300);

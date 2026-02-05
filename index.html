@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dig Dug</title>
+
+  <!-- Tailwind CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Pixel Art Font -->
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+    * {
+      font-family: 'Press Start 2P', cursive;
+    }
+
+    body {
+      box-sizing: border-box;
+    }
+
+    @keyframes inflate {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.3); }
+    }
+
+    @keyframes pulse-glow {
+      0%, 100% { filter: brightness(1); }
+      50% { filter: brightness(1.3); }
+    }
+  </style>
+</head>
+
+<body class="h-full bg-black m-0 p-0 overflow-hidden flex items-center justify-center">
+
+<div id="wrapper" class="w-full h-full flex flex-col items-center justify-center p-4">
+
+  <!-- TITLE SCREEN -->
+  <div id="title-screen" class="text-center space-y-6">
+    <h1 class="text-6xl text-yellow-400 drop-shadow-lg" style="text-shadow:4px 4px 0 #b45309;">
+      DIG DUG
+    </h1>
+
+    <div class="text-cyan-400 text-sm space-y-2">
+      <p>🎮 Arrow Keys or WASD to Move</p>
+      <p>⚡ Space to Pump Enemies</p>
+      <p>💀 Drop Rocks to Crush Enemies!</p>
+    </div>
+
+    <button id="start-btn"
+      class="bg-red-600 hover:bg-red-500 text-white px-8 py-4 text-lg rounded-lg transition transform hover:scale-105 shadow-xl">
+      START GAME
+    </button>
+
+    <p class="text-gray-500 text-xs mt-4">Press SPACE to start</p>
+  </div>
+
+  <!-- GAME SCREEN -->
+  <div id="game-screen" class="hidden flex flex-col items-center w-full max-w-lg">
+
+    <!-- HUD -->
+    <div class="w-full flex justify-between items-center mb-2 px-2">
+      <div class="text-yellow-300 text-xs">SCORE: <span id="score">0</span></div>
+      <div class="text-cyan-300 text-xs">LEVEL: <span id="level">1</span></div>
+      <div class="text-red-400 text-xs">LIVES: <span id="lives">❤️❤️❤️</span></div>
+    </div>
+
+    <!-- CANVAS -->
+    <canvas id="game-canvas" class="border-4 border-amber-800 rounded-lg shadow-2xl"></canvas>
+
+    <!-- MOBILE CONTROLS -->
+    <div class="md:hidden mt-4 grid grid-cols-3 gap-2 w-48">
+      <div></div>
+      <button class="mobile-btn bg-gray-800 text-white p-4 rounded-lg text-2xl" data-dir="up">⬆️</button>
+      <div></div>
+
+      <button class="mobile-btn bg-gray-800 text-white p-4 rounded-lg text-2xl" data-dir="left">⬅️</button>
+      <button class="mobile-btn bg-red-600 text-white p-4 rounded-lg text-xl" data-action="pump">💨</button>
+      <button class="mobile-btn bg-gray-800 text-white p-4 rounded-lg text-2xl" data-dir="right">➡️</button>
+
+      <div></div>
+      <button class="mobile-btn bg-gray-800 text-white p-4 rounded-lg text-2xl" data-dir="down">⬇️</button>
+      <div></div>
+    </div>
+
+  </div>
+
+  <!-- GAME OVER -->
+  <div id="gameover-screen" class="hidden text-center">
+    <h2 class="text-4xl text-red-500 mb-4" style="text-shadow:3px 3px 0 #7f1d1d;">GAME OVER</h2>
+    <p class="text-yellow-400 text-xl">Final Score: <span id="final-score">0</span></p>
+    <p class="text-cyan-400 text-sm mb-6">Level Reached: <span id="final-level">1</span></p>
+
+    <button id="restart-btn"
+      class="bg-green-600 hover:bg-green-500 text-white px-8 py-4 text-lg rounded-lg transition transform hover:scale-105">
+      PLAY AGAIN
+    </button>
+  </div>
+
+</div>
+
+<script>
+/* --- ALL GAME LOGIC BELOW (works on GitHub Pages) --- */
+
+// Canvas constants
+const TILE = 20;
+const GRID_W = 15;
+const GRID_H = 15;
+const canvas = document.getElementById("game-canvas");
+canvas.width = GRID_W * TILE;
+canvas.height = GRID_H * TILE;
+const ctx = canvas.getContext("2d");
+
+// HUD
+let score = 0, lives = 3, level = 1;
+document.getElementById("score").textContent = score;
+
+// Game state vars
+let gameState = "title";
+let grid = [];
+let player, enemies = [], rocks = [];
+let pump = null;
+let lastTime = 0;
+let keys = {};
+
+const TILE_EMPTY = 0;
+const TILE_DIRT = 1;
+const TILE_TUNNEL = 2;
+
+// Colors
+const COLORS = {
+  dirt: ["#8B4513","#A0522D","#CD853F","#D2691E"],
+  tunnel: "#1a1a2e",
+  sky: "#87CEEB",
+  player: "#FFD700",
+  playerOutline: "#FFA500",
+  pooka: "#FF6B6B",
+  fygar: "#50C878",
+  rock: "#808080",
+  rockHighlight: "#A9A9A9",
+  pump: "#00BFFF"
+};
+
+// Init grid
+function initGrid() {
+  grid = [];
+  for (let y=0; y<GRID_H; y++) {
+    grid[y] = [];
+    for (let x=0; x<GRID_W; x++) {
+      grid[y][x] = (y === 0) ? TILE_EMPTY : TILE_DIRT;
+    }
+  }
+  for (let x=5; x<10; x++) grid[1][x] = TILE_TUNNEL;
+}
+
+/* ----------------------------- PLAYER CLASS ----------------------------- */
+class Player {
+  constructor(x,y) {
+    this.x=x; this.y=y;
+    this.targetX=x; this.targetY=y;
+    this.direction="right";
+    this.moving=false;
+    this.speed=0.12;
+    this.invincible=false;
+    this.invTimer=0;
+  }
+
+  move(dir) {
+    if (this.moving || pump) return;
+
+    let nx = Math.round(this.targetX);
+    let ny = Math.round(this.targetY);
+
+    if (dir==="up") ny--;
+    if (dir==="down") ny++;
+    if (dir==="left") nx--;
+    if (dir==="right") nx++;
+
+    this.direction = dir;
+
+    if (nx>=0 && nx<GRID_W && ny>=0 && ny<GRID_H) {
+      this.targetX = nx;
+      this.targetY = ny;
+
+      if (grid[ny][nx] === TILE_DIRT) {
+        grid[ny][nx] = TILE_TUNNEL;
+        score += 10;
+      }
+    }
+  }
+
+  update(dt) {
+    if (this.invincible) {
+      this.invTimer -= dt;
+      if (this.invTimer <= 0) this.invincible = false;
+    }
+
+    let dx = this.targetX - this.x;
+    let dy = this.targetY - this.y;
+
+    if (Math.abs(dx)>0.01 || Math.abs(dy)>0.01) {
+      this.x += Math.sign(dx)*Math.min(Math.abs(dx),this.speed);
+      this.y += Math.sign(dy)*Math.min(Math.abs(dy),this.speed);
+      this.moving = true;
+    } else {
+      this.x = this.targetX;
+      this.y = this.targetY;
+      this.moving = false;
+    }
+  }
+
+  draw() {
+    const px=this.x*TILE, py=this.y*TILE;
+
+    // Blink if invincible
+    if (this.invincible && Math.floor(Date.now()/100)%2===0) return;
+
+    ctx.fillStyle = COLORS.player;
+    ctx.beginPath();
+    ctx.arc(px+TILE/2, py+TILE/2, TILE/2-2, 0, Math.PI*2);
+    ctx.fill();
+
+    ctx.strokeStyle = COLORS.playerOutline;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+}
+
+/* ------------------------------ ENEMY CLASS ------------------------------ */
+class Enemy {
+  constructor(x,y,type) {
+    this.x=x; this.y=y;
+    this.type=type;
+    this.targetX=x; this.targetY=y;
+    this.speed = 0.05 + (level*0.005);
+    this.alive = true;
+    this.inflate=0;
+  }
+
+  update(dt) {
+    if (!this.alive) return;
+
+    let dx = this.targetX - this.x;
+    let dy = this.targetY - this.y;
+
+    if (Math.abs(dx)>0.01 || Math.abs(dy)>0.01) {
+      this.x += Math.sign(dx)*Math.min(Math.abs(dx),this.speed);
+      this.y += Math.sign(dy)*Math.min(Math.abs(dy),this.speed);
+    } else {
+      const dirs=["up","down","left","right"];
+      const d = dirs[Math.floor(Math.random()*4)];
+      let nx=Math.round(this.x), ny=Math.round(this.y);
+      if (d==="up") ny--;
+      if (d==="down") ny++;
+      if (d==="left") nx--;
+      if (d==="right") nx++;
+
+      if (nx>=0&&nx<GRID_W&&ny>=0&&ny<GRID_H && grid[ny][nx]!==TILE_DIRT) {
+        this.targetX=nx;
+        this.targetY=ny;
+      }
+    }
+  }
+
+  draw() {
+    if (!this.alive) return;
+
+    const px=this.x*TILE, py=this.y*TILE;
+    ctx.fillStyle = this.type==="pooka" ? COLORS.pooka : COLORS.fygar;
+
+    ctx.beginPath();
+    ctx.arc(px+TILE/2, py+TILE/2, TILE/2-2, 0, Math.PI*2);
+    ctx.fill();
+  }
+}
+
+/* ------------------------------ ROCK CLASS ------------------------------ */
+class Rock {
+  constructor(x,y) {
+    this.x=x; this.y=y;
+    this.falling=false;
+    this.destroyed=false;
+    this.speed=0;
+  }
+
+  update(dt) {
+    if (this.destroyed) return;
+
+    const below = Math.floor(this.y)+1;
+    if (!this.falling) {
+      if (below<GRID_H && grid[below][Math.floor(this.x)]===TILE_TUNNEL) {
+        this.falling=true;
+      }
+    } else {
+      this.speed += 0.01;
+      this.y += this.speed;
+
+      if (Math.floor(this.y)>=GRID_H-1) {
+        this.destroyed=true;
+      }
+    }
+  }
+
+  draw() {
+    if (this.destroyed) return;
+    const px=this.x*TILE, py=this.y*TILE;
+
+    ctx.fillStyle = COLORS.rock;
+    ctx.fillRect(px+2, py+2, TILE-4, TILE-4);
+
+    ctx.fillStyle = COLORS.rockHighlight;
+    ctx.fillRect(px+4, py+4, TILE/2, TILE/2);
+  }
+}
+
+/* -------------------------- PUMP ATTACK CLASS -------------------------- */
+class Pump {
+  constructor(dir) {
+    this.dir = dir;
+    this.length=0;
+    this.active=true;
+  }
+
+  update(dt) {
+    if (!this.active) return;
+    this.length += 0.15;
+    if (this.length>3) this.active=false;
+  }
+
+  draw() {
+    const px = player.x*TILE + TILE/2;
+    const py = player.y*TILE + TILE/2;
+
+    let ex=px, ey=py;
+    if (this.dir==="up") ey-=this.length*TILE;
+    if (this.dir==="down") ey+=this.length*TILE;
+    if (this.dir==="left") ex-=this.length*TILE;
+    if (this.dir==="right") ex+=this.length*TILE;
+
+    ctx.strokeStyle = COLORS.pump;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(px,py);
+    ctx.lineTo(ex,ey);
+    ctx.stroke();
+  }
+}
+
+/* ------------------------------ RENDER BG ------------------------------ */
+function drawBackground() {
+  ctx.fillStyle = COLORS.sky;
+  ctx.fillRect(0,0,GRID_W*TILE,TILE);
+
+  for (let y=1; y<GRID_H; y++) {
+    const colorIndex = Math.min(Math.floor((y-1)/4), COLORS.dirt.length-1);
+    for (let x=0; x<GRID_W; x++) {
+      if (grid[y][x]===TILE_DIRT) {
+        ctx.fillStyle = COLORS.dirt[colorIndex];
+      } else {
+        ctx.fillStyle = COLORS.tunnel;
+      }
+      ctx.fillRect(x*TILE, y*TILE, TILE, TILE);
+    }
+  }
+}
+
+/* ------------------------------ GAME INIT ------------------------------ */
+function initGame() {
+  initGrid();
+  player = new Player(7,1);
+  enemies = [];
+
+  const count = 2 + level;
+  for (let i=0; i<count; i++) {
+    const ex = 2 + Math.floor(Math.random()*(GRID_W-4));
+    const ey = 4 + Math.floor(Math.random()*(GRID_H-6));
+    const type = Math.random()<0.5 ? "pooka" : "fygar";
+    enemies.push(new Enemy(ex,ey,type));
+    grid[ey][ex] = TILE_TUNNEL;
+  }
+
+  rocks=[];
+  for (let i=0; i<2; i++) {
+    let rx = Math.floor(Math.random()*(GRID_W-2));
+    let ry = 2+Math.floor(Math.random()*3);
+    rocks.push(new Rock(rx,ry));
+    grid[ry][rx] = TILE_TUNNEL;
+  }
+
+  pump=null;
+}
+
+/* ------------------------------ LEVEL CHECK ------------------------------ */
+function checkCollisions() {
+  if (player.invincible) return;
+
+  for (let e of enemies) {
+    if (!e.alive) return;
+    const dx=Math.abs(player.x-e.x);
+    const dy=Math.abs(player.y-e.y);
+    if (dx<0.6 && dy<0.6) {
+      playerDeath();
+      return;
+    }
+  }
+}
+
+function playerDeath() {
+  lives--;
+  document.getElementById("lives").textContent="❤️".repeat(lives);
+  if (lives <= 0) {
+    gameState="gameover";
+    document.getElementById("final-score").textContent=score;
+    document.getElementById("final-level").textContent=level;
+    showScreen("gameover");
+  } else {
+    player.invincible=true;
+    player.invTimer=1500;
+    player.x=7; player.y=1;
+    player.targetX=7; player.targetY=1;
+  }
+}
+
+function checkLevelComplete() {
+  if (enemies.every(e => !e.alive)) {
+    level++;
+    score += level*1000;
+    document.getElementById("score").textContent=score;
+    initGame();
+  }
+}
+
+/* ------------------------------ SCREEN CONTROL ------------------------------ */
+function showScreen(id) {
+  ["title","game","gameover"].forEach(s=>{
+    document.getElementById(`${s}-screen`).classList.add("hidden");
+  });
+  document.getElementById(`${id}-screen`).classList.remove("hidden");
+}
+
+/* ------------------------------ GAME LOOP ------------------------------ */
+function loop(ts) {
+  const dt = ts - lastTime;
+  lastTime = ts;
+
+  if (gameState==="playing") {
+    if (keys["ArrowUp"]||keys["KeyW"]) player.move("up");
+    if (keys["ArrowDown"]||keys["KeyS"]) player.move("down");
+    if (keys["ArrowLeft"]||keys["KeyA"]) player.move("left");
+    if (keys["ArrowRight"]||keys["KeyD"]) player.move("right");
+
+    player.update(dt);
+    enemies.forEach(e=>e.update(dt));
+    rocks.forEach(r=>r.update(dt));
+    if (pump) pump.update(dt);
+
+    checkCollisions();
+    checkLevelComplete();
+
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    drawBackground();
+    rocks.forEach(r=>r.draw());
+    enemies.forEach(e=>e.draw());
+    player.draw();
+    if (pump && pump.active) pump.draw();
+  }
+
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+/* ------------------------------ INPUT ------------------------------ */
+document.addEventListener("keydown", e=>{
+  keys[e.code]=true;
+
+  if (e.code==="Space") {
+    e.preventDefault();
+    if (gameState==="title") {
+      gameState="playing";
+      score=0; lives=3; level=1;
+      initGame();
+      showScreen("game");
+    } else if (gameState==="playing" && !pump) {
+      pump = new Pump(player.direction);
+      setTimeout(()=>pump=null,300);
+    }
+  }
+});
+
+document.addEventListener("keyup", e=>{
+  keys[e.code]=false;
+});
+
+/* ------------------------------ BUTTONS ------------------------------ */
+document.getElementById("start-btn").onclick = ()=>{
+  gameState="playing";
+  score=0; lives=3; level=1;
+  initGame();
+  showScreen("game");
+};
+
+document.getElementById("restart-btn").onclick = ()=>{
+  gameState="playing";
+  score=0; lives=3; level=1;
+  initGame();
+  showScreen("game");
+};
+
+/* ------------------------------ MOBILE ------------------------------ */
+document.querySelectorAll(".mobile-btn").forEach(btn=>{
+  btn.addEventListener("touchstart", e=>{
+    const dir = btn.dataset.dir;
+    const action = btn.dataset.action;
+    e.preventDefault();
+
+    if (dir) {
+      keys["Arrow"+dir.charAt(0).toUpperCase()+dir.slice(1)] = true;
+    }
+    if (action==="pump" && !pump) {
+      pump = new Pump(player.direction);
+      setTimeout(()=>pump=null,300);
+    }
+  });
+
+  btn.addEventListener("touchend", e=>{
+    const dir = btn.dataset.dir;
+    if (dir) {
+      keys["Arrow"+dir.charAt(0).toUpperCase()+dir.slice(1)] = false;
+    }
+  });
+});
+</script>
+
+</body>
+</html>
